@@ -34,89 +34,82 @@ PyMODINIT_FUNC init_spa(void)
 
 static PyObject *spa_za(PyObject *self, PyObject *args)
 {
-    PyObject  *year_obj, *month_obj, *day_obj, *hour_obj, *minute_obj, *second_obj, *latitude_obj, *longitude_obj;
+    static const int N_DOUBLE_IN  = 0;
+    static const int N_ARRAY_IN   = 8;
+    static const int N_DOUBLE_OUT = 0;
+    static const int N_ARRAY_OUT  = 2;
     
-    int      i, ndim, dims[NPY_MAXDIMS], rc=0;
+    PyObject *input_obj[128];
+    double    input_double[64];
+    
+    PyArrayObject *input_arr[64],     *output_arr[64];
+    double        *input_arr_ptr[64], *output_arr_ptr[64];
+    
+    double    year, month, day, hour, minute, second, latitude, longitude;
+    double    zenith, azimuth;
+    
+    int flag;
+    
+    int      i, j, ndim, dims[NPY_MAXDIMS], rc=0;
     spa_data spa;
 
     /* Parse the input tuple */
-    if (!PyArg_ParseTuple(args, "OOOOOOOO", &year_obj, &month_obj, &day_obj, &hour_obj, &minute_obj, &second_obj,
-                                            &latitude_obj, &longitude_obj))
+    if (!PyArg_ParseTuple(args, "OOOOOOOO", &input_obj[0], &input_obj[1], &input_obj[2], &input_obj[3], &input_obj[4], 
+                                            &input_obj[5], &input_obj[6], &input_obj[7]))
         return NULL;
-
     
     /* Interpret the input objects as numpy arrays. */
-    PyObject      *year_arr = PyArray_FROM_OTF(     year_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject     *month_arr = PyArray_FROM_OTF(    month_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject       *day_arr = PyArray_FROM_OTF(      day_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject      *hour_arr = PyArray_FROM_OTF(     hour_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject    *minute_arr = PyArray_FROM_OTF(   minute_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject    *second_arr = PyArray_FROM_OTF(   second_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject  *latitude_arr = PyArray_FROM_OTF( latitude_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject *longitude_arr = PyArray_FROM_OTF(longitude_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-
+    for (i=0; i<N_ARRAY_IN; i++)
+        input_arr[i] = (PyArrayObject *) PyArray_FROM_OTF(input_obj[i+N_DOUBLE_IN], NPY_DOUBLE, NPY_IN_ARRAY);
+    
     /* If that didn't work, throw an exception. */
-    if (year_arr == NULL || month_arr == NULL || day_arr == NULL  || hour_arr == NULL
-        || minute_arr == NULL|| second_arr == NULL || latitude_arr == NULL || longitude_arr == NULL) {
-        Py_XDECREF(     year_arr);
-        Py_XDECREF(    month_arr);
-        Py_XDECREF(      day_arr);
-        Py_XDECREF(     hour_arr);
-        Py_XDECREF(   minute_arr);
-        Py_XDECREF(   second_arr);
-        Py_XDECREF( latitude_arr);
-        Py_XDECREF(longitude_arr);
+    flag = 0; for (i=0; i<N_ARRAY_IN; i++) if (input_arr[i]==NULL) flag = 1;
+    if (flag==1) {
+        for (i=0; i<N_ARRAY_IN; i++) Py_XDECREF(input_arr[i]);
         return NULL;
     }
-
+    
     /* Get pointers to the data as C-types. */
-    double      *year = (double*)PyArray_DATA(     year_arr);
-    double     *month = (double*)PyArray_DATA(    month_arr);
-    double       *day = (double*)PyArray_DATA(      day_arr);
-    double      *hour = (double*)PyArray_DATA(     hour_arr);
-    double    *minute = (double*)PyArray_DATA(   minute_arr);
-    double    *second = (double*)PyArray_DATA(   second_arr);
-    double  *latitude = (double*)PyArray_DATA( latitude_arr);
-    double *longitude = (double*)PyArray_DATA(longitude_arr);
+    for (i=0; i<N_ARRAY_IN; i++) input_arr_ptr[i] = (double*) PyArray_DATA(input_arr[i]);
     
     /* How many data points are there? */
-    ndim =   (int)PyArray_NDIM(year_arr);
+    ndim = (int)PyArray_NDIM(input_arr[0]);
     
     int N=1;
-    for (i=0; i<ndim; i++) {
-         dims[i] = PyArray_DIM(year_arr, i);
-         N *= dims[i];
+    for (j=0; j<ndim; j++) {
+         dims[j] = PyArray_DIM(input_arr[0], j);
+         N *= dims[j];
          /* check for dimension size compatibility */
-         if ( dims[i] != PyArray_DIM(month_arr, i) || dims[i] != PyArray_DIM(day_arr, i) || dims[i] != PyArray_DIM(hour_arr, i) || dims[i] != PyArray_DIM(minute_arr, i) ||
-              dims[i] != PyArray_DIM(second_arr, i) || dims[i] != PyArray_DIM(latitude_arr, i) || dims[i] != PyArray_DIM(longitude_arr, i) ) {
+         flag = 0; for (i=1; i<N_ARRAY_IN; i++) if (dims[j] != PyArray_DIM(input_arr[i], j)) flag = 1;
+         if (flag==1) {
+             for (i=0; i<N_ARRAY_IN; i++) Py_XDECREF(input_arr[i]);
              PyErr_SetString(PyExc_RuntimeError, "different dimensions of input arrays.");
              return NULL;
          }
     }
-    
-    // fprintf(stderr, "ndim = %d, N=%d, dims[0]=%d, dims[1]=%d\n", ndim, N, dims[0], dims[1]);
-    // PyErr_SetString(PyExc_RuntimeError, "SPA");
-   
-    PyArrayObject  *zenith_arr = (PyArrayObject *) PyArray_FromDims(ndim, dims, NPY_DOUBLE);
-    PyArrayObject *azimuth_arr = (PyArrayObject *) PyArray_FromDims(ndim, dims, NPY_DOUBLE);    
-    
-    double  *zenith = (double*)PyArray_DATA( zenith_arr);
-    double *azimuth = (double*)PyArray_DATA(azimuth_arr);
+        
+    for (i=0; i<N_ARRAY_OUT; i++) {
+        output_arr[i]     = (PyArrayObject *) PyArray_FromDims(ndim, dims, NPY_DOUBLE);
+        output_arr_ptr[i] = (double*) PyArray_DATA(output_arr[i]);
+    }
     
     /* Call the external C function to compute the chi-squared. */
     for (i=0; i<N; i++) {
         
-        /* some checks */
-        if (longitude[i]>180) longitude[i] -= 360;
+        year   = input_arr_ptr[0][i];   month = input_arr_ptr[1][i];      day = input_arr_ptr[2][i];      hour = input_arr_ptr[3][i];
+        minute = input_arr_ptr[4][i];  second = input_arr_ptr[5][i]; latitude = input_arr_ptr[6][i]; longitude = input_arr_ptr[7][i];
         
-        spa.year          = (int) year[i];
-        spa.month         = (int) month[i];
-        spa.day           = (int) day[i];
-        spa.hour          = (int) hour[i];
-        spa.minute        = (int) minute[i];
-        spa.second        = (int) second[i];
-        spa.latitude      = latitude[i];
-        spa.longitude     = longitude[i];
+        /* some checks */
+        if (longitude>180) longitude -= 360;
+        
+        spa.year          = (int) year;
+        spa.month         = (int) month;
+        spa.day           = (int) day;
+        spa.hour          = (int) hour;
+        spa.minute        = (int) minute;
+        spa.second        = (int) second;
+        spa.latitude      = latitude;
+        spa.longitude     = longitude;
         spa.timezone      = 0.0;
         spa.delta_t       = 0;
         spa.elevation     = 0;
@@ -130,178 +123,146 @@ static PyObject *spa_za(PyObject *self, PyObject *args)
         rc = spa_calculate(&spa);
         
         if (rc == 0) {
-            zenith[i]  = spa.zenith;
-            azimuth[i] = spa.azimuth;
+            zenith  = spa.zenith;
+            azimuth = spa.azimuth;
         }
         else {
-            zenith[i]  = -9999;
-            azimuth[i] = -9999;
+            zenith  = -9999;
+            azimuth = -9999;
         }
+        
+        output_arr_ptr[0][i] = zenith; output_arr_ptr[1][i] = azimuth;
         
     }
     
     /* Clean up. */
-    Py_DECREF(year_arr);
-    Py_DECREF(month_arr);
-    Py_DECREF(day_arr);
-    Py_DECREF(hour_arr);
-    Py_DECREF(minute_arr);
-    Py_DECREF(second_arr);
-    Py_DECREF(latitude_arr);
-    Py_DECREF(longitude_arr);
+    for (i=0; i<N_ARRAY_IN; i++) Py_XDECREF(input_arr[i]);
     
     // PyErr_SetString(PyExc_RuntimeError, "SPA here 1."); return NULL;
 
     /* Build the output tuple */
-    return Py_BuildValue("OO", zenith_arr, azimuth_arr);
+    return Py_BuildValue("OO", output_arr[0], output_arr[1]);
 }
 
 static PyObject *spa_za_inc(PyObject *self, PyObject *args)
 {
-    PyObject  *year_obj, *month_obj, *day_obj, *hour_obj, *minute_obj, *second_obj, *latitude_obj, *longitude_obj, *elevation_obj, *slope_obj, *aspect_obj;
+    static const int N_DOUBLE_IN  = 0;
+    static const int N_ARRAY_IN   = 11;
+    static const int N_DOUBLE_OUT = 0;
+    static const int N_ARRAY_OUT  = 3;
     
-    int      i, ndim, dims[NPY_MAXDIMS], rc=0;
+    PyObject *input_obj[128];
+    double    input_double[64];
+    
+    PyArrayObject *input_arr[64],     *output_arr[64];
+    double        *input_arr_ptr[64], *output_arr_ptr[64];
+    
+    double    year, month, day, hour, minute, second, latitude, longitude, elevation, slope, aspect;
+    double    zenith, azimuth, incidence;
+    
+    int flag;
+    
+    int      i, j, ndim, dims[NPY_MAXDIMS], rc=0;
     spa_data spa;
+    
     static const double m_air   = 0.02896; // molecular mass of air, kg mol^-1
     static const double R_const = 8.3143;  // gas constant, N M mol^-1 K^-1
     static const double g_const = 9.807;   // gravity constant, m s^-2
     static const double T_const = 288.15;  // "default" air temperature, K
 
     /* Parse the input tuple */
-    if (!PyArg_ParseTuple(args, "OOOOOOOOOOO", &year_obj, &month_obj, &day_obj, &hour_obj, &minute_obj, &second_obj,
-                                               &latitude_obj, &longitude_obj, &elevation_obj, &slope_obj, &aspect_obj))
+    if (!PyArg_ParseTuple(args, "OOOOOOOOOOO", &input_obj[0], &input_obj[1], &input_obj[2], &input_obj[3], &input_obj[4], 
+                                               &input_obj[5], &input_obj[6], &input_obj[7], &input_obj[8], &input_obj[9], &input_obj[10]))
         return NULL;
-
     
     /* Interpret the input objects as numpy arrays. */
-    PyObject      *year_arr = PyArray_FROM_OTF(     year_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject     *month_arr = PyArray_FROM_OTF(    month_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject       *day_arr = PyArray_FROM_OTF(      day_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject      *hour_arr = PyArray_FROM_OTF(     hour_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject    *minute_arr = PyArray_FROM_OTF(   minute_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject    *second_arr = PyArray_FROM_OTF(   second_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject  *latitude_arr = PyArray_FROM_OTF( latitude_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject *longitude_arr = PyArray_FROM_OTF(longitude_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject *elevation_arr = PyArray_FROM_OTF(elevation_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject     *slope_arr = PyArray_FROM_OTF(    slope_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-    PyObject    *aspect_arr = PyArray_FROM_OTF(   aspect_obj, NPY_DOUBLE, NPY_IN_ARRAY);
-
+    for (i=0; i<N_ARRAY_IN; i++)
+        input_arr[i] = (PyArrayObject *) PyArray_FROM_OTF(input_obj[i+N_DOUBLE_IN], NPY_DOUBLE, NPY_IN_ARRAY);
+    
     /* If that didn't work, throw an exception. */
-    if (year_arr == NULL || month_arr == NULL || day_arr == NULL  || hour_arr == NULL
-        || minute_arr == NULL|| second_arr == NULL || latitude_arr == NULL || longitude_arr == NULL
-        || elevation_arr == NULL || slope_arr == NULL || aspect_arr == NULL) {
-        Py_XDECREF(     year_arr);
-        Py_XDECREF(    month_arr);
-        Py_XDECREF(      day_arr);
-        Py_XDECREF(     hour_arr);
-        Py_XDECREF(   minute_arr);
-        Py_XDECREF(   second_arr);
-        Py_XDECREF( latitude_arr);
-        Py_XDECREF(longitude_arr);
-        Py_XDECREF(elevation_arr);
-        Py_XDECREF(    slope_arr);
-        Py_XDECREF(   aspect_arr);
+    flag = 0; for (i=0; i<N_ARRAY_IN; i++) if (input_arr[i]==NULL) flag = 1;
+    if (flag==1) {
+        for (i=0; i<N_ARRAY_IN; i++) Py_XDECREF(input_arr[i]);
         return NULL;
     }
-
+    
     /* Get pointers to the data as C-types. */
-    double      *year = (double*)PyArray_DATA(     year_arr);
-    double     *month = (double*)PyArray_DATA(    month_arr);
-    double       *day = (double*)PyArray_DATA(      day_arr);
-    double      *hour = (double*)PyArray_DATA(     hour_arr);
-    double    *minute = (double*)PyArray_DATA(   minute_arr);
-    double    *second = (double*)PyArray_DATA(   second_arr);
-    double  *latitude = (double*)PyArray_DATA( latitude_arr);
-    double *longitude = (double*)PyArray_DATA(longitude_arr);
-    double *elevation = (double*)PyArray_DATA(elevation_arr);
-    double     *slope = (double*)PyArray_DATA(    slope_arr);
-    double    *aspect = (double*)PyArray_DATA(   aspect_arr);
+    for (i=0; i<N_ARRAY_IN; i++) input_arr_ptr[i] = (double*) PyArray_DATA(input_arr[i]);
     
     /* How many data points are there? */
-    ndim =   (int)PyArray_NDIM(year_arr);
+    ndim = (int)PyArray_NDIM(input_arr[0]);
     
     int N=1;
-    for (i=0; i<ndim; i++) {
-         dims[i] = PyArray_DIM(year_arr, i);
-         N *= dims[i];
+    for (j=0; j<ndim; j++) {
+         dims[j] = PyArray_DIM(input_arr[0], j);
+         N *= dims[j];
          /* check for dimension size compatibility */
-         if ( dims[i] != PyArray_DIM(month_arr, i) || dims[i] != PyArray_DIM(day_arr, i) || dims[i] != PyArray_DIM(hour_arr, i) || dims[i] != PyArray_DIM(minute_arr, i) ||
-              dims[i] != PyArray_DIM(second_arr, i) || dims[i] != PyArray_DIM(latitude_arr, i) || dims[i] != PyArray_DIM(longitude_arr, i) ||
-              dims[i] != PyArray_DIM(elevation_arr, i) || dims[i] != PyArray_DIM(slope_arr, i) || dims[i] != PyArray_DIM(aspect_arr, i) ) {
+         flag = 0; for (i=1; i<N_ARRAY_IN; i++) if (dims[j] != PyArray_DIM(input_arr[i], j)) flag = 1;
+         if (flag==1) {
+             for (i=0; i<N_ARRAY_IN; i++) Py_XDECREF(input_arr[i]);
              PyErr_SetString(PyExc_RuntimeError, "different dimensions of input arrays.");
              return NULL;
          }
     }
-    
-    // fprintf(stderr, "ndim = %d, N=%d, dims[0]=%d, dims[1]=%d\n", ndim, N, dims[0], dims[1]);
-    // PyErr_SetString(PyExc_RuntimeError, "SPA");
-   
-    PyArrayObject    *zenith_arr = (PyArrayObject *) PyArray_FromDims(ndim, dims, NPY_DOUBLE);
-    PyArrayObject   *azimuth_arr = (PyArrayObject *) PyArray_FromDims(ndim, dims, NPY_DOUBLE);    
-    PyArrayObject *incidence_arr = (PyArrayObject *) PyArray_FromDims(ndim, dims, NPY_DOUBLE);    
-    
-    double  *zenith   = (double*)PyArray_DATA(   zenith_arr);
-    double *azimuth   = (double*)PyArray_DATA(  azimuth_arr);
-    double *incidence = (double*)PyArray_DATA(incidence_arr);
+        
+    for (i=0; i<N_ARRAY_OUT; i++) {
+        output_arr[i]     = (PyArrayObject *) PyArray_FromDims(ndim, dims, NPY_DOUBLE);
+        output_arr_ptr[i] = (double*) PyArray_DATA(output_arr[i]);
+    }
     
     /* Call the external C function to compute the chi-squared. */
     for (i=0; i<N; i++) {
         
+        year      = input_arr_ptr[0][i];   month = input_arr_ptr[1][i];      day = input_arr_ptr[2][i];      hour = input_arr_ptr[3][i];
+        minute    = input_arr_ptr[4][i];  second = input_arr_ptr[5][i]; latitude = input_arr_ptr[6][i]; longitude = input_arr_ptr[7][i];
+        elevation = input_arr_ptr[8][i];   slope = input_arr_ptr[9][i];   aspect = input_arr_ptr[10][i]; 
+        
         /* some checks */
-        if (longitude[i]>180) longitude[i] -= 360;
+        if (longitude>180) longitude -= 360;
         
         /* SPA's azm_rotation angle is measured from south and most aspect angle is measured from north */
-        aspect[i] -= 180;
-        if (aspect[i]<-360) aspect[i] += 360;
+        aspect -= 180; if (aspect<-360) aspect += 360;
         
-        spa.year          = (int) year[i];
-        spa.month         = (int) month[i];
-        spa.day           = (int) day[i];
-        spa.hour          = (int) hour[i];
-        spa.minute        = (int) minute[i];
-        spa.second        = (int) second[i];
-        spa.latitude      = latitude[i];
-        spa.longitude     = longitude[i];
+        spa.year          = (int) year;
+        spa.month         = (int) month;
+        spa.day           = (int) day;
+        spa.hour          = (int) hour;
+        spa.minute        = (int) minute;
+        spa.second        = (int) second;
+        spa.latitude      = latitude;
+        spa.longitude     = longitude;
         spa.timezone      = 0.0;
         spa.delta_t       = 0;
-        spa.elevation     = elevation[i];
-        spa.pressure      = 1000*exp(-m_air*g_const*elevation[i]/(R_const*T_const));
+        spa.elevation     = elevation;
+        spa.pressure      = 1000*exp(-m_air*g_const*elevation/(R_const*T_const));
         spa.temperature   = 0;
-        spa.slope         = slope[i];
-        spa.azm_rotation  = aspect[i];
+        spa.slope         = slope;
+        spa.azm_rotation  = aspect;
         spa.atmos_refract = 0.5667;
         spa.function      = SPA_ZA_INC;
         
         rc = spa_calculate(&spa);
         
         if (rc == 0) {
-            zenith[i]    = spa.zenith;
-            azimuth[i]   = spa.azimuth;
-            incidence[i] = spa.incidence;
+            zenith    = spa.zenith;
+            azimuth   = spa.azimuth;
+            incidence = spa.incidence;
         }
         else {
-            zenith[i]    = -9999;
-            azimuth[i]   = -9999;
-            incidence[i] = -9999;
+            zenith    = -9999;
+            azimuth   = -9999;
+            incidence = -9999;
         }
+        
+        output_arr_ptr[0][i] = zenith; output_arr_ptr[1][i] = azimuth; output_arr_ptr[2][i] = incidence;
         
     }
     
     /* Clean up. */
-    Py_XDECREF(     year_arr);
-    Py_XDECREF(    month_arr);
-    Py_XDECREF(      day_arr);
-    Py_XDECREF(     hour_arr);
-    Py_XDECREF(   minute_arr);
-    Py_XDECREF(   second_arr);
-    Py_XDECREF( latitude_arr);
-    Py_XDECREF(longitude_arr);
-    Py_XDECREF(elevation_arr);
-    Py_XDECREF(    slope_arr);
-    Py_XDECREF(   aspect_arr);
+    for (i=0; i<N_ARRAY_IN; i++) Py_XDECREF(input_arr[i]);
     
     // PyErr_SetString(PyExc_RuntimeError, "SPA here 1."); return NULL;
 
     /* Build the output tuple */
-    return Py_BuildValue("OOO", zenith_arr, azimuth_arr, incidence_arr);
+    return Py_BuildValue("OOO", output_arr[0], output_arr[1], output_arr[2]);
 }
