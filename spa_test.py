@@ -14,12 +14,12 @@ el=np.array([[0, -100], [30, 300], [3000, 5000]])
 sl=np.array([[0, -10], [1, 40], [0, 6]])
 ap=np.array([[100, 270], [-130, -300], [0, 330]])
 
-ze,az=_spa.za(yr, mo, da, ho, mi, se, la, lo)
+ze,az=_spa.calc(yr, mo, da, ho, mi, se, la, lo)
 
 print ze
 print az
 
-ze,az,ic=_spa.za_inc(yr, mo, da, ho, mi, se, la, lo, el, sl, ap)
+ze,az,ic=_spa.calc(yr, mo, da, ho, mi, se, la, lo, el, sl, ap)
 
 print 'za_inc'
 print ze
@@ -46,7 +46,8 @@ mi=zz+59
 se=zz+59
 lo,la=np.meshgrid(dummy.grid.lon, dummy.grid.lat)
 
-ze,az=_spa.za(yr, mo, da, ho, mi, se, la, lo)
+ze,az=_spa.calc(yr, mo, da, ho, mi, se, la, lo)
+ze,az=_spa.calc(2003, 12, 31, 23, 59, 59.9, la, lo)
 
 dummy.data[:]=ze[:]
 ga.imp('ze', dummy)
