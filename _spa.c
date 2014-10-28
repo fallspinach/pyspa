@@ -1,4 +1,4 @@
-#define PY_ARRAY_UNIQUE_SYMBOL Py_Array_API_pyspa
+#define PYSPA_MAX_ARGS 64
 
 #include <Python.h>
 #include <numpy/arrayobject.h>
@@ -34,12 +34,12 @@ static PyObject *spa_calc(PyObject *self, PyObject *args)
 {
     int N_IN, N_DOUBLE_IN, N_ARRAY_IN, N_DOUBLE_OUT, N_ARRAY_OUT, N;
     
-    PyObject *input_obj[128];
-    double    input_double[64];
+    PyObject *input_obj[PYSPA_MAX_ARGS];
+    double    input_double[PYSPA_MAX_ARGS];
     
-    PyArrayObject *input_arr[64],     *output_arr[64];
-    double        *input_arr_ptr[64], *output_arr_ptr[64];
-    int            input_arr_map[64], input_double_map[64], input_type[128];
+    PyArrayObject *input_arr[PYSPA_MAX_ARGS],     *output_arr[PYSPA_MAX_ARGS];
+    double        *input_arr_ptr[PYSPA_MAX_ARGS], *output_arr_ptr[PYSPA_MAX_ARGS];
+    int            input_arr_map[PYSPA_MAX_ARGS], input_double_map[PYSPA_MAX_ARGS], input_type[PYSPA_MAX_ARGS];
     
     double    year=0, month=0, day=0, hour=0, minute=0, second=0, latitude=0, longitude=0, elevation=0, slope=0, aspect=0;
     double    zenith, azimuth, incidence;
@@ -122,17 +122,10 @@ static PyObject *spa_calc(PyObject *self, PyObject *args)
          }
     }
         
-    // fprintf(stderr, "N_IN=%d, N_DOUBLE_IN=%d, N_ARRAY_IN=%d, N_ARRY_OUT=%d, ndim=%d, dims={%d, %d}.\n",
-    
     for (i=0; i<N_ARRAY_OUT; i++) {
         output_arr[i]     = (PyArrayObject *) PyArray_FromDims(ndim, dims, NPY_DOUBLE);
-        // output_arr[i]     = (PyArrayObject *) PyArray_NewLikeArray(input_arr[input_arr_map[0]], NPY_KEEPORDER, NULL, 1);
-        // if (output_arr[i] == NULL) fprintf(stderr, "Can't create numpy array.\n");
         output_arr_ptr[i] = (double*) PyArray_DATA(output_arr[i]);
     }
-    
-    // fprintf(stderr, "Output: ndim=%d, dims={%d, %d}.\n",
-    //                 PyArray_NDIM(output_arr[0]), PyArray_DIM(output_arr[0], 0), PyArray_DIM(output_arr[0], 1));
     
     /* Call the external C function to compute the results. */
     for (j=0; j<N; j++) {
@@ -153,7 +146,6 @@ static PyObject *spa_calc(PyObject *self, PyObject *args)
                 case  9: slope     = value;
                 case 10: aspect    = value;
             }
-            // fprintf(stderr, "Loop: i=%d, %d, %lf.\n", i, j, value);
         }
         
         /* some checks */
